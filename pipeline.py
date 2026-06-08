@@ -1,11 +1,13 @@
 """Command-line entry point: Sentinel-2 scene dir -> vegetation GeoJSON.
 
 Usage:
-    python -m src.pipeline /path/to/S2_scene.SAFE outputs/katthammarsvik_veg.geojson
+    python pipeline.py /path/to/S2_scene.SAFE outputs/katthammarsvik_veg.geojson
 """
 from __future__ import annotations
 import sys
-from . import io_s2, deglint, classify
+import io_s2
+import deglint
+import classify
 
 
 def run(scene_dir: str, out_geojson: str,

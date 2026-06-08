@@ -1,0 +1,154 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "aa28a3b9",
+   "metadata": {},
+   "source": [
+    "# Katthammarsvik coastal vegetation mapping\n",
+    "**Sentinel-2 → sun-glint correction → classification → GeoJSON (SWEREF 99 TM)**\n",
+    "\n",
+    "Emma Kathleen Larsen · Visby, Gotland · emma@geoteka.se\n",
+    "\n",
+    "This notebook runs the full pipeline on a Sentinel-2 L2A scene covering\n",
+    "Katthammarsvik. The water here is turbid (calcareous sediment) and glint-prone,\n",
+    "so the deglinting step is what makes the optical signal usable."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "863287aa",
+   "metadata": {},
+   "source": [
+    "## 1. Setup\n",
+    "The processing modules sit next to this notebook in the repo."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "4024f884",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "import io_s2, deglint, classify\n",
+    "\n",
+    "# --- point this at your downloaded Sentinel-2 L2A scene (.SAFE folder) ---\n",
+    "SCENE_DIR = \"data/S2_katthammarsvik.SAFE\"\n",
+    "OUT_GEOJSON = \"outputs/katthammarsvik_vegetation.geojson\"\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "5a047653",
+   "metadata": {},
+   "source": [
+    "## 2. Load the scene\n",
+    "Blue/green/red/NIR as reflectance plus a validity mask from the SCL layer."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "5f0c50d4",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "scene = io_s2.load_scene(SCENE_DIR)\n",
+    "red, green, nir = scene['red'], scene['green'], scene['nir']\n",
+    "print('grid:', red.shape, '| valid pixels:', int(scene['valid'].sum()))\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "aaf50b7b",
+   "metadata": {},
+   "source": [
+    "## 3. Sun glint correction (Hedley et al. 2005)\n",
+    "Fit the glint regression over optically deep water, then subtract per pixel."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "0a959c08",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "deep = classify.deepwater_mask(green, nir, scene['valid'])\n",
+    "before = scene['red'].copy()\n",
+    "scene = deglint.deglint_scene(scene, deep)\n",
+    "after = scene['red']\n",
+    "\n",
+    "fig, ax = plt.subplots(1, 2, figsize=(11, 5))\n",
+    "for a, img, t in zip(ax, (before, after), ('Red — raw', 'Red — deglinted')):\n",
+    "    a.imshow(img, vmin=0, vmax=0.15, cmap='gray'); a.set_title(t); a.axis('off')\n",
+    "plt.tight_layout(); plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "f48a33bf",
+   "metadata": {},
+   "source": [
+    "## 4. Water mask + vegetation classification\n",
+    "NDWI separates water from land; NDVI flags vegetation inside the water/coastal zone."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "e0e8909e",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "water = classify.water_mask(green, nir, scene['valid'], ndwi_thresh=0.0)\n",
+    "classes = classify.classify_vegetation(scene, water, ndvi_thresh=0.10)\n",
+    "\n",
+    "plt.figure(figsize=(7, 7))\n",
+    "plt.imshow(classes, cmap='viridis')\n",
+    "plt.title('0=unclassified  1=vegetation  2=open water'); plt.axis('off'); plt.show()\n",
+    "print('vegetation pixels:', int((classes == 1).sum()))\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c81eb6cf",
+   "metadata": {},
+   "source": [
+    "## 5. Vectorise → GeoJSON in SWEREF 99 TM\n",
+    "Output drops straight into a Lantmäteriet-aligned QGIS project (EPSG:3006)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "598c9d7f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "gdf = classify.to_geojson(classes, scene['profile'], OUT_GEOJSON)\n",
+    "print(f'{len(gdf)} polygons → {OUT_GEOJSON} ({classify.SWEREF99_TM})')\n",
+    "gdf.head()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "84a6fc67",
+   "metadata": {},
+   "source": [
+    "## Notes\n",
+    "- Thresholds (`ndwi_thresh`, `ndvi_thresh`) are tuned for this site and must be\n",
+    "  re-checked per scene.\n",
+    "- Validation against field points is partial — thesis-scale result, not an\n",
+    "  operational product."
+   ]
+  }
+ ],
+ "metadata": {},
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
